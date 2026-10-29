@@ -1,0 +1,808 @@
+import * as t from "io-ts"
+import * as uuid from "uuid"
+import { LocalStorageBoard } from "../../frontend/src/store/board-local-store"
+import { arrayToRecordById } from "./arrays"
+import { DEFAULT_NOTE_COLOR, LIGHT_BLUE, PINK, RED } from "./colors"
+import { Rect } from "./geometry"
+
+export type Id = string
+export type ISOTimeStamp = string
+
+export function newISOTimeStamp(): ISOTimeStamp {
+    return new Date().toISOString()
+}
+
+export function optional<T extends t.Type<any>>(c: T) {
+    return t.union([c, t.undefined, t.null])
+}
+
+export const CrdtDisabled = undefined
+export const CrdtEnabled = 1 as const
+export type CrdtMode = typeof CrdtDisabled | typeof CrdtEnabled
+
+export type BoardAttributes = {
+    id: Id
+    name: string
+    width: number
+    height: number
+    accessPolicy?: BoardAccessPolicy
+    crdt?: CrdtMode
+}
+
+export type BoardContents = {
+    items: Record<Id, Item>
+    connections: Connection[]
+}
+
+export type Board = BoardAttributes &
+    BoardContents & {
+        serial: Serial
+    }
+
+export type BoardStub = Pick<Board, "id" | "name" | "accessPolicy" | "crdt"> & { templateId?: Id }
+
+export const AccessLevelCodec = t.union([
+    t.literal("admin"),
+    t.literal("read-write"),
+    t.literal("read-only"),
+    t.literal("none"),
+])
+export type AccessLevel = t.TypeOf<typeof AccessLevelCodec>
+export const AccessListEntryCodec = t.union([
+    t.type({
+        email: t.string,
+        access: optional(AccessLevelCodec),
+    }),
+    t.type({
+        domain: t.string,
+        access: optional(AccessLevelCodec),
+    }),
+])
+export type AccessListEntry = t.TypeOf<typeof AccessListEntryCodec>
+export const BoardAccessPolicyDefinedCodec = t.type({
+    allowList: t.array(AccessListEntryCodec),
+    publicRead: optional(t.boolean),
+    publicWrite: optional(t.boolean),
+})
+export type BoardAccessPolicyDefined = t.TypeOf<typeof BoardAccessPolicyDefinedCodec>
+export const BoardAccessPolicyCodec = t.union([t.undefined, BoardAccessPolicyDefinedCodec])
+export type BoardAccessPolicy = t.TypeOf<typeof BoardAccessPolicyCodec>
+
+export type EventUserInfo = UnidentifiedUserInfo | SystemUserInfo | EventUserInfoAuthenticated
+
+export type UnidentifiedUserInfo = { nickname: string; userType: "unidentified" }
+export type SystemUserInfo = { nickname: string; userType: "system" }
+
+export type EventUserInfoAuthenticated = {
+    nickname: string
+    userType: "authenticated"
+    name: string
+    email: string
+    userId: string
+}
+
+export type SessionUserInfo = UnidentifiedUserInfo | SystemUserInfo | SessionUserInfoAuthenticated
+
+export type SessionUserInfoAuthenticated = {
+    nickname: string
+    userType: "authenticated"
+    name: string
+    email: string
+    picture: string | undefined
+    userId: string
+    domain: string | null
+}
+
+export type UserSessionInfo = SessionUserInfo & {
+    sessionId: Id
+}
+
+export type BoardHistoryEntry = {
+    user: EventUserInfo
+    timestamp: ISOTimeStamp
+    serial?: Serial
+    firstSerial?: Serial
+} & PersistableBoardItemEvent
+export type BoardWithHistory = { board: Board; history: BoardHistoryEntry[] }
+export type CompactBoardHistory = { boardAttributes: BoardAttributes; history: BoardHistoryEntry[] }
+
+export const defaultBoardSize = { width: 800, height: 600 }
+
+export interface CursorPosition {
+    x: number
+    y: number
+}
+
+export type UserCursorPosition = CursorPosition & {
+    sessionId: Id
+}
+
+export type BoardCursorPositions = Record<Id, UserCursorPosition>
+
+export type Color = string
+
+export type ItemBounds = { x: number; y: number; width: number; height: number; z: number }
+export type LockState = false | "locked" | "read-only"
+export type ItemCreator = "api" | "customer" | "admin"
+export type ItemProperties = {
+    id: string
+    containerId?: string
+    locked: LockState
+    hidden?: boolean
+    /** Wer hat das Item angelegt? Wird beim Anlegen gestempelt (API-Items: "api"). Haken für den Zugang-PR: das Feld
+     * beim item.add setzen (z. B. "customer" für Gastlink-Sessions), sonst gilt "admin" für Browser-Items. */
+    createdBy?: ItemCreator
+    createdAt?: ISOTimeStamp
+    /** Wird vom Reducer bei jedem Event mit Zeitstempel gesetzt (Server). */
+    modifiedAt?: ISOTimeStamp
+} & ItemBounds
+
+export const ITEM_TYPES = {
+    NOTE: "note",
+    TEXT: "text",
+    IMAGE: "image",
+    VIDEO: "video",
+    CONTAINER: "container",
+    DRAWING: "drawing",
+} as const
+export type ItemType = typeof ITEM_TYPES[keyof typeof ITEM_TYPES]
+export type QuillDelta = any // TODO: define this properly
+export type TextItemProperties = ItemProperties & {
+    text: string
+    fontSize?: number
+    align?: Align
+    crdt?: CrdtMode
+    textAsDelta?: QuillDelta
+    /** Schriftfarbe (Hex). Ohne Angabe: Kontrastfarbe zum Hintergrund. */
+    textColor?: string
+    /** Rahmenfarbe (Hex) und -stärke in API-Pixeln (Skala siehe backend board-api). */
+    borderColor?: string
+    borderWidth?: number
+    /** Flache Form (kein Schatten, normale Schrift): "shape" statt Haftnotiz. */
+    flat?: boolean
+    /** Abgerundete Ecken (round_rectangle). */
+    rounded?: boolean
+}
+export type NoteShape = "round" | "square" | "rect" | "diamond"
+export type Note = TextItemProperties & {
+    type: typeof ITEM_TYPES.NOTE
+    color: Color
+    shape: NoteShape | undefined
+}
+export type Text = TextItemProperties & { type: typeof ITEM_TYPES.TEXT; color: Color }
+export type Image = ItemProperties & { type: typeof ITEM_TYPES.IMAGE; assetId: string; src?: string; title?: string }
+export type Video = ItemProperties & { type: typeof ITEM_TYPES.VIDEO; assetId: string; src?: string }
+export type Container = TextItemProperties & {
+    type: typeof ITEM_TYPES.CONTAINER
+    color: Color
+    contentsHidden?: boolean
+}
+
+/**
+ * Freihand-Strich, Linie oder Pfeil. `points` sind relativ zum Rahmen des Items normalisiert (0..1), damit
+ * Verschieben, Skalieren und Löschen wie bei jedem anderen Element funktionieren. `strokeWidth` steht in
+ * Board-Pixeln (1 em = 40 px), `color` ist die Strichfarbe (Hex).
+ */
+export type DrawingKind = "pen" | "line" | "arrow"
+export type Drawing = ItemProperties & {
+    type: typeof ITEM_TYPES.DRAWING
+    kind: DrawingKind
+    points: [number, number][]
+    color: Color
+    strokeWidth: number
+}
+
+export type Point = { x: number; y: number }
+export function Point(x: number, y: number) {
+    return { x, y }
+}
+export const isPoint = (u: unknown): u is Point => typeof u === "object" && !!u && "x" in u && "y" in u
+export type ConnectionEndStyle = "none" | "arrow" | "black-dot"
+export type Connection = {
+    id: Id
+    from: ConnectionEndPoint
+    controlPoints: Point[]
+    to: ConnectionEndPoint
+    containerId?: string
+    locked: LockState
+    fromStyle: ConnectionEndStyle
+    toStyle: ConnectionEndStyle
+    pointStyle: "none" | "black-dot"
+    action: "connect" | "line"
+    hidden?: boolean
+}
+export type ConnectionEndPoint = Point | ConnectionEndPointToItem
+export type ConnectionEndPointToItem = Id | ConectionEndPointDirectedToItem
+export type ConectionEndPointDirectedToItem = { id: Id; side: AttachmentSide }
+export function getEndPointItemId(e: ConnectionEndPointToItem) {
+    if (typeof e === "string") return e
+    return e.id
+}
+export function isItemEndPoint(e: ConnectionEndPoint): e is ConnectionEndPointToItem {
+    if (typeof e === "string") return true
+    if ("side" in e) return true
+    return false
+}
+export function isDirectedItemEndPoint(e: ConnectionEndPoint): e is ConectionEndPointDirectedToItem {
+    return isItemEndPoint(e) && typeof e === "object"
+}
+export type AttachmentSide = "left" | "right" | "top" | "bottom"
+export type AttachmentLocation = { side: "none"; point: Point } | ItemAttachmentLocation
+export type ItemAttachmentLocation = { side: AttachmentSide; point: Point; item: Item }
+
+export type RenderableConnection = Omit<Connection, "from" | "to"> & {
+    from: AttachmentLocation
+    to: AttachmentLocation
+}
+
+export type TextItem = Note | Text | Container
+export type ColoredItem = Item & { color: Color }
+export type ShapedItem = Note
+export type Item = TextItem | Image | Video | Drawing
+export type ItemLocks = Record<Id, Id>
+
+export type RecentBoardAttributes = { id: Id; name: string }
+export type RecentBoard = RecentBoardAttributes & { opened: ISOTimeStamp; userEmail: string | null }
+
+export type BoardEvent = { boardId: Id }
+export type UIEvent = BoardItemEvent | ClientToServerRequest | LocalUIEvent
+export type LocalUIEvent = Undo | Redo | SetLocalBoard | GoOnline | BoardLoggedOut | GoOffline | TextFormat
+export type EventFromServer = BoardHistoryEntry | BoardStateSyncEvent | LoginResponse | AckAddBoard | ServerConfig
+export type ServerConfig = {
+    action: "server.config"
+    authSupported: boolean
+    assetStorageURL: string
+    crdt: "true" | "false" | "opt-in" | "opt-in-authenticated"
+}
+export type Serial = number
+export type AppEvent =
+    | BoardItemEvent
+    | BoardStateSyncEvent
+    | LocalUIEvent
+    | ClientToServerRequest
+    | LoginResponse
+    | AckAddBoard
+    | ServerConfig
+export type EventWrapper = {
+    events: AppEvent[]
+    ackId?: string
+}
+export type PersistableBoardItemEvent =
+    | AddItem
+    | UpdateItem
+    | MoveItem
+    | DeleteItem
+    | AddConnection
+    | ModifyConnection
+    | DeleteConnection
+    | IncreaseItemFont
+    | DecreaseItemFont
+    | BringItemToFront
+    | BootstrapBoard
+    | RenameBoard
+    | SetBoardAccessPolicy
+export type BoardInit = InitBoardNew | InitBoardDiff
+export type TransientBoardItemEvent = LockItem | UnlockItem
+export type BoardItemEvent = PersistableBoardItemEvent | TransientBoardItemEvent
+export type BoardStateSyncEvent =
+    | BoardInit
+    | RecentBoardsFromServer
+    | GotBoardLocks
+    | CursorPositions
+    | JoinedBoard
+    | LeftBoard
+    | UserLoggedIn
+    | AckJoinBoard
+    | DeniedJoinBoard
+    | UserInfoUpdate
+    | ActionApplyFailed
+    | AssetPutUrlResponse
+    | Ack
+    | BringAllToMe
+    | DrawingLive
+
+export type ClientToServerRequest =
+    | CursorMove
+    | DrawingLive
+    | AddBoard
+    | LockItem
+    | UnlockItem
+    | JoinBoard
+    | AssociateBoard
+    | DissociateBoard
+    | SetNickname
+    | AssetPutUrlRequest
+    | AuthJWTLogin
+    | UserLoggedIn
+    | AuthLogout
+    | Ping
+    | BringAllToMe
+
+export type LoginResponse =
+    | { action: "auth.login.response"; success: false }
+    | { action: "auth.login.response"; success: true; userId: string }
+export type AddConnection = { action: "connection.add"; boardId: Id; connections: Connection[] }
+export type ModifyConnection = { action: "connection.modify"; boardId: Id; connections: Connection[] }
+export type DeleteConnection = { action: "connection.delete"; boardId: Id; connectionIds: Id[] }
+export type UserLoggedIn = {
+    action: "user.login"
+    name: string
+    email: string
+    picture: string | undefined
+}
+export type AuthJWTLogin = {
+    action: "auth.login.jwt"
+    jwt: string
+}
+export type AuthLogout = { action: "auth.logout" }
+export type Ping = { action: "ping" }
+export type AddItem = { action: "item.add"; boardId: Id; items: Item[]; connections: Connection[] }
+export type UpdateItem = { action: "item.update"; boardId: Id; items: ItemUpdate[]; connections?: ConnectionUpdate[] }
+export type Update<T> = Partial<T> & { id: Id }
+export type ItemUpdate<I extends Item = Item> = Update<I>
+export type ConnectionUpdate = Update<Connection>
+export type MoveItem = {
+    action: "item.move"
+    boardId: Id
+    items: { id: Id; x: number; y: number; containerId?: Id | undefined }[]
+    connections: { id: Id; x: number; y: number }[] // Coordinates are for connection start point.
+}
+export type IncreaseItemFont = { action: "item.font.increase"; boardId: Id; itemIds: Id[] }
+export type DecreaseItemFont = { action: "item.font.decrease"; boardId: Id; itemIds: Id[] }
+export type BringItemToFront = { action: "item.front"; boardId: Id; itemIds: Id[] }
+export type DeleteItem = { action: "item.delete"; boardId: Id; itemIds: Id[]; connectionIds: Id[] }
+export type BootstrapBoard = { action: "item.bootstrap"; boardId: Id } & BoardContents
+export type LockItem = { action: "item.lock"; boardId: Id; itemId: Id }
+export type UnlockItem = { action: "item.unlock"; boardId: Id; itemId: Id }
+export type GotBoardLocks = { action: "board.locks"; boardId: Id; locks: ItemLocks }
+export type AddBoard = { action: "board.add"; payload: Board | BoardStub }
+export type AckAddBoard = { action: "board.add.ack"; boardId: Id }
+export type JoinBoard = { action: "board.join"; boardId: Id; initAtSerial?: Serial }
+export type BringAllToMe = { action: "user.bringAllToMe"; boardId: Id; sessionId: Id; viewRect: Rect; nickname: string }
+export type AssociateBoard = { action: "board.associate"; boardId: Id; lastOpened: ISOTimeStamp }
+export type DissociateBoard = { action: "board.dissociate"; boardId: Id }
+export type SetBoardAccessPolicy = {
+    action: "board.setAccessPolicy"
+    boardId: Id
+    accessPolicy: BoardAccessPolicyDefined
+}
+export type AckJoinBoard = { action: "board.join.ack"; boardId: Id } & UserSessionInfo
+export type DeniedJoinBoard =
+    | {
+          action: "board.join.denied"
+          boardId: Id
+          reason: "unauthorized" | "forbidden" | "not found"
+      }
+    | {
+          action: "board.join.denied"
+          boardId: Id
+          reason: "redirect"
+          wsAddress: string
+      }
+export type RecentBoardsFromServer = { action: "user.boards"; email: string; boards: RecentBoard[] }
+export type Ack = { action: "ack"; ackId: string; serials: Record<Id, Serial> }
+export type ActionApplyFailed = { action: "board.action.apply.failed" }
+export type JoinedBoard = { action: "board.joined"; boardId: Id } & UserSessionInfo
+export type LeftBoard = { action: "board.left"; boardId: Id; sessionId: Id }
+export type UserInfoUpdate = { action: "userinfo.set" } & UserSessionInfo
+export type InitBoardNew = { action: "board.init"; board: Board; accessLevel: AccessLevel }
+export type InitBoardDiff = {
+    action: "board.init.diff"
+    initAtSerial: Serial
+    first: boolean
+    last: boolean
+    recentEvents: BoardHistoryEntry[]
+    boardAttributes: BoardAttributes
+    accessLevel: AccessLevel
+}
+export type RenameBoard = { action: "board.rename"; boardId: Id; name: string }
+export type CursorMove = { action: "cursor.move"; position: CursorPosition; boardId: Id }
+/** Flüchtiger Zwischenstand einer Zeichnung, die gerade entsteht. Wird nur weitergereicht, nie gespeichert. */
+export type DrawingLive = { action: "drawing.live"; boardId: Id; item: Drawing }
+export type SetNickname = { action: "nickname.set"; nickname: string }
+export type AssetPutUrlRequest = { action: "asset.put.request"; assetId: string }
+export type AssetPutUrlResponse = { action: "asset.put.response"; assetId: string; signedUrl: string }
+export type Undo = { action: "ui.undo" }
+export type Redo = { action: "ui.redo" }
+export type TextFormat = { action: "ui.text.format"; itemIds: Id[]; format: "bold" | "italic" | "underline" }
+
+export type SetLocalBoard = {
+    action: "ui.board.setLocal"
+    boardId: Id | undefined
+    storedInitialState: LocalStorageBoard | undefined
+}
+export type BoardLoggedOut = { action: "ui.board.logged.out"; boardId: Id }
+export type GoOffline = { action: "ui.offline" }
+export type GoOnline = { action: "ui.online" }
+
+export const CURSOR_POSITIONS_ACTION_TYPE = "c" as const
+export type CursorPositions = { action: typeof CURSOR_POSITIONS_ACTION_TYPE; p: Record<Id, UserCursorPosition> }
+
+export const exampleBoard: Board = {
+    id: "default",
+    name: "Test Board",
+    items: arrayToRecordById([
+        newNote("Hello", PINK, 10, 5),
+        newNote("World", LIGHT_BLUE, 20, 10),
+        newNote("Welcome", RED, 5, 14),
+    ]),
+    connections: [],
+    ...defaultBoardSize,
+    serial: 0,
+}
+
+export function newBoard(name: string, crdt?: CrdtMode, accessPolicy?: BoardAccessPolicy): Board {
+    return { id: uuid.v4(), name, items: {}, accessPolicy, connections: [], ...defaultBoardSize, serial: 0, crdt }
+}
+
+export function newNote(
+    text: string,
+    color: Color = DEFAULT_NOTE_COLOR,
+    x: number = 20,
+    y: number = 20,
+    width: number = 5,
+    height: number = 5,
+    shape: NoteShape = "square",
+    z: number = 0,
+): Note {
+    return { id: uuid.v4(), type: "note", text, color, x, y, width, height, z, shape, locked: false }
+}
+
+/** Standardgröße neuer Post-its im Browser: 5 em = 200 API-Pixel (Skala 1 em = 40 px), wie API-Post-its (199 px). */
+export const NEW_NOTE_SIZE = 5
+export const NEW_NOTE_FONT_SIZE = NEW_NOTE_SIZE * 0.1
+
+/** Neues Post-it in Standardgröße. Nur die Farbe wird vom Vorbild übernommen, nie Größe/Form: sonst erbt ein
+ * Post-it die Maße der zuletzt markierten Tabellenzelle oder Shape-Form (Frames, Kopfzellen, Mehrfachbreite). */
+export function newSimilarNote(note: Note) {
+    const color = note.flat ? DEFAULT_NOTE_COLOR : note.color
+    const n = newNote("HELLO", color, 20, 20, NEW_NOTE_SIZE, NEW_NOTE_SIZE, "square")
+    return { ...n, fontSize: NEW_NOTE_FONT_SIZE }
+}
+
+export function newText(
+    crdt: CrdtMode,
+    text: string = "HELLO",
+    x: number = 20,
+    y: number = 20,
+    width: number = 5,
+    height: number = 2,
+    z: number = 0,
+): Text {
+    return {
+        id: uuid.v4(),
+        type: "text",
+        text,
+        x,
+        y,
+        width,
+        height,
+        z,
+        color: "none",
+        locked: false,
+        crdt,
+    }
+}
+
+export function newContainer(
+    crdt: CrdtMode,
+    x: number = 20,
+    y: number = 20,
+    width: number = 30,
+    height: number = 20,
+    z: number = 0,
+): Container {
+    return {
+        id: uuid.v4(),
+        type: "container",
+        text: "Unnamed area",
+        x,
+        y,
+        width,
+        height,
+        z,
+        color: "white",
+        locked: false,
+        crdt,
+    }
+}
+
+export function newImage(
+    assetId: string,
+    x: number = 20,
+    y: number = 20,
+    width: number = 5,
+    height: number = 5,
+    z: number = 0,
+): Image {
+    return { id: uuid.v4(), type: "image", assetId, x, y, width, height, z, locked: false }
+}
+
+export function newVideo(
+    assetId: string,
+    x: number = 20,
+    y: number = 20,
+    width: number = 5,
+    height: number = 5,
+    z: number = 0,
+): Video {
+    return { id: uuid.v4(), type: "video", assetId, x, y, width, height, z, locked: false }
+}
+
+export const isBoardItemEvent = (a: AppEvent): a is BoardItemEvent =>
+    a.action.startsWith("item.") ||
+    a.action.startsWith("connection.") ||
+    a.action === "board.rename" ||
+    a.action === "board.setAccessPolicy"
+
+export const isPersistableBoardItemEvent = (e: any): e is PersistableBoardItemEvent =>
+    isBoardItemEvent(e) && !["item.lock", "item.unlock"].includes(e.action)
+
+export const isBoardHistoryEntry = (e: AppEvent): e is BoardHistoryEntry =>
+    isPersistableBoardItemEvent(e) && !!(e as BoardHistoryEntry).user && !!(e as BoardHistoryEntry).timestamp
+export const isLocalUIEvent = (e: AppEvent): e is LocalUIEvent => e.action.startsWith("ui.")
+export const isCursorMove = (e: AppEvent): e is CursorMove => e.action === "cursor.move"
+export function isSameUser(a: EventUserInfo, b: EventUserInfo) {
+    return a.userType == b.userType && a.nickname == b.nickname
+}
+
+export function isColoredItem(i: Item): i is ColoredItem {
+    return i.type === "note" || i.type === "container" || i.type === "text"
+}
+
+export function isShapedItem(i: Item): i is ShapedItem {
+    return i.type === "note"
+}
+
+export function isTextItem(i: Item): i is TextItem {
+    return i.type === "note" || i.type === "text" || i.type === "container"
+}
+
+export function isNote(i: Item): i is Note {
+    return i.type === "note"
+}
+
+export function isDrawing(i: Item): i is Drawing {
+    return i.type === "drawing"
+}
+
+export function isContainer(i: Item): i is Container {
+    return i.type === "container"
+}
+
+export function isText(i: Item): i is Text {
+    return i.type === "text"
+}
+
+export function isItem(i: Item | Point | Connection): i is Item {
+    return "type" in i
+}
+
+export function getItemText(i: Item) {
+    if (isTextItem(i)) return i.text
+    return ""
+}
+
+export function getItemBackground(i: Item) {
+    if (isColoredItem(i)) {
+        return i.color || "white" // Default for legacy containers
+    }
+    return "none"
+}
+
+export function getItemShape(i: Item) {
+    return i.type === "note" && i.shape ? i.shape : "rect"
+}
+
+type NamespacedEvent<Namespace extends string, T = AppEvent> = T extends { action: `${Namespace}.${string}` }
+    ? T
+    : never
+
+export function actionNamespaceIs<Namespace extends string>(
+    ns: Namespace,
+    a: AppEvent,
+): a is NamespacedEvent<Namespace> {
+    return a.action.startsWith(ns + ".")
+}
+
+export function getItemIds(e: BoardHistoryEntry | PersistableBoardItemEvent): Id[] {
+    switch (e.action) {
+        case "item.front":
+        case "item.delete":
+        case "item.font.decrease":
+        case "item.font.increase":
+            return e.itemIds
+        case "item.move":
+            return e.items.map((i) => i.id)
+        case "item.update":
+            return e.items.map((i) => i.id)
+        case "item.add":
+            return e.items.map((i) => i.id)
+        case "item.bootstrap":
+            return Object.keys(e.items)
+        case "board.rename":
+        case "board.setAccessPolicy":
+        case "connection.add":
+        case "connection.modify":
+        case "connection.delete":
+            return []
+    }
+}
+
+export const getItem = (boardOrItems: Board | Record<string, Item>) => (id: Id) => {
+    const item = findItem(boardOrItems)(id)
+    if (!item) throw Error("Item not found: " + id)
+    return item
+}
+
+export const getConnection = (b: Board) => (id: Id) => {
+    const conn = b.connections.find((c) => c.id === id)
+    if (!conn) throw Error("Connection not found: " + id)
+    return conn
+}
+
+export const findItem = (boardOrItems: Board | Record<string, Item>) => (id: Id): Item | null => {
+    const items = getItems(boardOrItems)
+    const item = items[id]
+    return item || null
+}
+
+export const findConnection = (board: Board) => (id: Id) => {
+    const conn = board.connections.find((c) => c.id === id)
+    return conn || null
+}
+
+export function findItemIdsRecursively(ids: Id[], board: Board): Set<Id> {
+    const recursiveIds = new Set<Id>()
+    const addIdRecursively = (id: Id) => {
+        recursiveIds.add(id)
+        Object.values(board.items).forEach((i) => i.containerId === id && addIdRecursively(i.id))
+    }
+    ids.forEach(addIdRecursively)
+    return recursiveIds
+}
+
+export function findItemsRecursively(ids: Id[], board: Board): Item[] {
+    const recursiveIds = findItemIdsRecursively(ids, board)
+    return [...recursiveIds].map(getItem(board))
+}
+
+export const isContainedBy = (boardOrItems: Board | Record<string, Item>, parentCandidate: Item) => (
+    i: Item,
+): boolean => {
+    if (!i.containerId) return false
+    if (i.containerId === parentCandidate!.id) return true
+    const itemsOnBoard = getItems(boardOrItems)
+    const parent = findItem(itemsOnBoard)(i.containerId)
+    if (i.containerId === i.id) throw Error("Self-contained")
+    if (parent == i) throw Error("self parent")
+    if (!parent) return false // Don't fail here, because when folding create+move, the action is run in an incomplete board context
+    return isContainedBy(boardOrItems, parentCandidate)(parent)
+}
+
+const isBoard = (u: unknown): u is Board => typeof u === "object" && !!u && "items" in u
+
+const getItems = (boardOrItems: Board | Record<string, Item>) =>
+    isBoard(boardOrItems) ? boardOrItems.items : boardOrItems
+
+export function isBoardEmpty(board: Board) {
+    return board.connections.length === 0 && Object.values(board.items).length === 0
+}
+
+export function getBoardAttributes(board: Board, userInfo?: EventUserInfo): BoardAttributes {
+    const accessPolicy = board.accessPolicy
+        ? userInfo && userInfo.userType === "authenticated"
+            ? board.accessPolicy
+            : { ...board.accessPolicy, allowList: [] } // Anonymize access policy for anonymous users
+        : undefined
+    return {
+        id: board.id,
+        name: board.name,
+        width: board.width,
+        height: board.height,
+        accessPolicy,
+    }
+}
+
+export const BOARD_ITEM_BORDER_MARGIN = 0.5
+
+export function checkBoardAccess(accessPolicy: BoardAccessPolicy | undefined, userInfo: SessionUserInfo): AccessLevel {
+    if (!accessPolicy) return "read-write"
+    let accessLevel: AccessLevel = accessPolicy.publicWrite
+        ? "read-write"
+        : accessPolicy.publicRead
+        ? "read-only"
+        : "none"
+    if (userInfo.userType === "unidentified" || userInfo.userType === "system") {
+        return accessLevel
+    }
+    const email = userInfo.email
+    const domain = userInfo.domain
+
+    const defaultAccess = "read-write"
+    for (let entry of accessPolicy.allowList) {
+        const nextLevel =
+            "email" in entry && entry.email === email
+                ? entry.access || defaultAccess
+                : "domain" in entry && domain === entry.domain
+                ? entry.access || defaultAccess
+                : "none"
+        accessLevel = combineAccessLevels(accessLevel, nextLevel)
+    }
+    return accessLevel
+}
+
+function combineAccessLevels(a: AccessLevel, b: AccessLevel): AccessLevel {
+    if (a === "admin" || b === "admin") return "admin"
+    if (a === "read-write" || b === "read-write") return "read-write"
+    if (a === "read-only" || b === "read-only") return "read-only"
+    return "none"
+}
+
+export function canRead(a: AccessLevel) {
+    return a !== "none"
+}
+
+export function canWrite(a: AccessLevel) {
+    return a === "read-write" || a === "admin"
+}
+
+export type Align = "TL" | "TC" | "TR" | "ML" | "MC" | "MR" | "BL" | "BC" | "BR"
+
+export function getAlign(item: TextItem) {
+    return item.align ?? (isNote(item) ? "MC" : "TL")
+}
+
+export type HorizontalAlign = "left" | "center" | "right"
+
+export function getHorizontalAlign(align: Align): HorizontalAlign {
+    switch (align) {
+        case "TL":
+        case "ML":
+        case "BL":
+            return "left"
+        case "TC":
+        case "MC":
+        case "BC":
+            return "center"
+        case "TR":
+        case "MR":
+        case "BR":
+            return "right"
+    }
+    console.log("Unknown align", align)
+    return "center"
+}
+
+export type VerticalAlign = "top" | "middle" | "bottom"
+
+export function getVerticalAlign(align: Align): VerticalAlign {
+    switch (align) {
+        case "TL":
+        case "TC":
+        case "TR":
+            return "top"
+        case "ML":
+        case "MC":
+        case "MR":
+            return "middle"
+        case "BL":
+        case "BC":
+        case "BR":
+            return "bottom"
+    }
+    console.log("Unknown align", align)
+    return "middle"
+}
+
+export function setHorizontalAlign<I extends TextItem>(item: I, a: HorizontalAlign): ItemUpdate<I> {
+    const letter = a === "left" ? "L" : a === "center" ? "C" : "R"
+    const align = `${getAlign(item)[0]}${letter}`
+    return { id: item.id, align } as ItemUpdate<I>
+}
+
+export function setVerticalAlign<I extends TextItem>(item: I, a: VerticalAlign): ItemUpdate<I> {
+    const letter = a === "top" ? "T" : a === "middle" ? "M" : "B"
+    const align = `${letter}${getAlign(item)[1]}`
+    return { id: item.id, align } as ItemUpdate<I>
+}

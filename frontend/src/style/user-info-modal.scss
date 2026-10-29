@@ -1,0 +1,23 @@
+@import "./variables.scss";
+
+.modal-dialog .user-info {
+    .anonymous {
+        .nickname {
+            input {
+                margin-top: 1em;
+                display: block;
+                width: 100%;
+            }
+        }
+    }
+    .logged-in {
+        .icon {
+            width: 1em;
+            height: initial;
+            border-radius: 50%;
+        }
+    }
+    button {
+        margin-top: 1em;
+    }
+}

@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.env
+**/.env
+backend/localfiles
+backend/localfiles-test
+playwright/results
+**/__pycache__

@@ -1,0 +1,39 @@
+# Start:  cp .env.docker.example .env  (fill in the values), then  docker compose up -d
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postitchaos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: postitchaos
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postitchaos -d postitchaos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${PORT:-1337}:1337"
+    environment:
+      DATABASE_URL: postgres://postitchaos:${POSTGRES_PASSWORD}@db:5432/postitchaos
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:1337}
+      WHITEBOARD_SESSION_SECRET: ${WHITEBOARD_SESSION_SECRET:?set WHITEBOARD_SESSION_SECRET in .env}
+      WHITEBOARD_ADMIN_PASSWORD_HASH: ${WHITEBOARD_ADMIN_PASSWORD_HASH:?set WHITEBOARD_ADMIN_PASSWORD_HASH in .env}
+      WHITEBOARD_API_TOKEN: ${WHITEBOARD_API_TOKEN:-}
+      WHITEBOARD_ADMIN_NAME: ${WHITEBOARD_ADMIN_NAME:-Admin}
+      WHITEBOARD_LANGUAGE: ${WHITEBOARD_LANGUAGE:-en}
+    volumes:
+      - assets:/data/assets
+
+volumes:
+  db:
+  assets:

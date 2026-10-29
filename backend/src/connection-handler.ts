@@ -1,0 +1,68 @@
+import { AppEvent, Id, Serial, EventWrapper } from "../../common/src/domain"
+import { getActiveBoards } from "./board-state"
+import { getConfig } from "./config"
+import { releaseLocksFor } from "./locker"
+import { broadcastCursorPositions, endSession, startSession } from "./websocket-sessions"
+import { WsWrapper, toBuffer } from "./ws-wrapper"
+
+export type ConnectionHandlerParams = Readonly<{
+    getSignedPutUrl: (key: string) => string | Promise<string>
+}>
+
+export const connectionHandler = (socket: WsWrapper, handleMessage: MessageHandler) => {
+    startSession(socket)
+    const config = getConfig()
+    socket.send(
+        toBuffer({
+            action: "server.config",
+            assetStorageURL: config.storageBackend.assetStorageURL,
+            authSupported: config.authSupported,
+            crdt: config.crdt,
+        }),
+    )
+    socket.onError(() => {
+        socket.close()
+    })
+    socket.onMessage(async (o: object) => {
+        try {
+            let event = o as EventWrapper
+            let serialsToAck: Record<Id, Serial> = {}
+            for (const e of event.events) {
+                const serialAck = await handleMessage(socket, e)
+                if (serialAck === true) {
+                } else if (serialAck === false) {
+                    console.warn("Unhandled app-event message", e)
+                } else {
+                    serialsToAck[serialAck.boardId] = serialAck.serial
+                }
+            }
+            if (event.ackId) {
+                socket.send(toBuffer({ action: "ack", ackId: event.ackId, serials: serialsToAck }))
+            }
+        } catch (e) {
+            console.error("Error while handling event from client. Closing connection.", e)
+            socket.close()
+        }
+    })
+
+    socket.onClose(() => {
+        endSession(socket)
+        getActiveBoards().forEach((state) => {
+            delete state.cursorPositions[socket.id]
+            state.cursorsMoved = true
+        })
+        releaseLocksFor(socket)
+    })
+}
+
+setInterval(() => {
+    getActiveBoards().forEach((bh) => {
+        if (bh.cursorsMoved) {
+            broadcastCursorPositions(bh.board.id, bh.cursorPositions)
+            bh.cursorsMoved = false
+        }
+    })
+}, 100)
+
+export type MessageHandler = (socket: WsWrapper, appEvent: AppEvent) => Promise<MessageHandlerResult>
+export type MessageHandlerResult = { boardId: Id; serial: Serial } | boolean

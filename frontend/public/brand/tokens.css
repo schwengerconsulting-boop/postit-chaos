@@ -1,0 +1,21 @@
+/* Post-it Chaos – Design-Tokens. EINE Stelle fuer Farben, Schrift, Radius.
+   Wird von index.html UND den serverseitigen Seiten geladen. */
+@import url("/fonts/fonts.css");
+:root{
+  --c-ink:#14181f;
+  --c-ink-soft:#1c222b;
+  --c-paper:#f7f8fa;
+  --c-white:#fff;
+  --c-text:#14181f;
+  --c-muted:#6b707a;
+  --c-line:#dfe2e8;
+  --c-green:#10b981;       /* Akzent, Flaechen ohne Text und Rahmen */
+  --c-green-deep:#0a8159;  /* Flaechen mit weisser Schrift/Icons (Kontrast 5:1) */
+  --c-green-tint:#e7f7f0;
+  --c-danger:#b42318;
+  --radius-btn:4px;
+  --radius-card:6px;
+  --shadow-pop:0 8px 24px -8px rgba(20,24,31,.18);
+  --font-sans:"Inter Variable","Inter",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}

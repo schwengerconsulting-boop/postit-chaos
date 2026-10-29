@@ -1,0 +1,171 @@
+#root.board-container.not-found header {
+    #board-info {
+        visibility: hidden;
+    }
+}
+#root.board-container header {
+    position: fixed;
+    top: 0;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--c-line);
+    font-size: 0.8em;
+    z-index: $z-index-top-menu;
+    padding: 0 0.8em;
+    height: $header-height;
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: saturate(180%) blur(12px);
+    color: $black;
+
+    @media (max-width: $narrow-screen-breakpoint) {
+        border-bottom: none;
+    }
+
+    span[contenteditable] {
+        border: 2px solid transparent;
+        &[contenteditable="false"]:hover,
+        &:focus {
+            border: 2px solid var(--c-green);
+            outline: none;
+            font-size: 1rem;
+        }
+    }
+
+    .logo-area {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            text-decoration: none;
+            .brand-wordmark {
+                font-family: var(--font-sans);
+                font-weight: 700;
+                font-size: 1.15rem;
+                letter-spacing: -0.01em;
+                color: var(--c-text);
+                line-height: 1.4rem;
+            }
+            @media (max-width: $narrow-screen-breakpoint) {
+                .brand-wordmark {
+                    font-size: 1rem;
+                }
+            }
+        }
+    }
+
+    > #board-info {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 0.5em;
+        margin-left: 1rem;
+        #board-name {
+            margin-right: 0.5em;
+        }
+        small {
+            color: gray;
+            border-radius: 0.5em;
+            padding: 1px 0.5em;
+            font-size: 0.6em;
+            vertical-align: middle;
+        }
+        a svg {
+            height: 1em;
+        }
+        a:not(:first-of-type) svg {
+            margin-left: 0.21em;
+        }
+    }
+
+    .right-panel {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        @media (max-width: $narrow-screen-breakpoint) {
+            .other-users,
+            .offline-status {
+                display: none;
+            }
+        }
+
+        .offline-status {
+            font-size: 0.8em;
+            opacity: 0.8;
+            cursor: pointer;
+        }
+
+        .other-users {
+            position: relative;
+            .pop-up {
+                position: absolute;
+                top: 1em;
+                right: 0;
+                min-width: 10em;
+                background-color: white;
+                border-radius: 0px 0px 3px 3px;
+                padding: 1.5em 1em 1em;
+                text-align: right;
+                display: none;
+                ul {
+                    li:first-child {
+                        margin-bottom: 0.5em;
+                    }
+                    list-style: none;
+                    padding: 0;
+                    margin: 0;
+                }
+                border-bottom: 2px solid #e7e8e8;
+            }
+            .youlink {
+                opacity: 0.5;
+                font-size: "0.8em";
+            }
+            &:hover {
+                .pop-up {
+                    display: block;
+                }
+            }
+        }
+    }
+
+    @media (max-width: 1024px) {
+        font-size: 0.8rem;
+    }
+
+    .user-info {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        padding-left: 1em;
+        .icon {
+            cursor: pointer;
+            margin-right: 0.5em;
+            display: inline-flex;
+            img {
+                border-radius: 50%;
+            }
+            svg {
+                width: 100%;
+            }
+        }
+
+        &.logging-in-local,
+        &.logging-in-server {
+            @extend .disabled-interaction;
+        }
+        &.logged-in {
+            .icon {
+                height: 2em;
+                width: 2em;
+            }
+        }
+    }
+    > * {
+        color: $black;
+    }
+}

@@ -1,0 +1,390 @@
+#root.board-container {
+    > .content-container > .tool-layer {
+        margin: 0;
+        z-index: $z-index-menu;
+        position: absolute;
+        pointer-events: none;
+        width: 100%;
+        height: 100%;
+        top: 0;
+
+        > * {
+            pointer-events: all;
+        }
+
+        &.read-only {
+            .main-toolbar,
+            .wb-style-panel {
+                display: none;
+            }
+        }
+
+        .toolbar {
+            border: 1px solid var(--c-line);
+            box-shadow: var(--shadow-pop);
+            display: inline-block;
+            background: white;
+            padding: 0.5em;
+            border-radius: var(--radius-card);
+        }
+
+        .navigation-toolbar {
+            @extend .toolbar;
+            position: absolute;
+            left: 1em;
+            top: 1em;
+            font-size: 0.8em;
+            a {
+                .icon {
+                    vertical-align: top;
+                    margin-right: 0.5em;
+                }
+                text-decoration: none;
+                color: $black;
+            }
+            @media (max-width: $narrow-screen-breakpoint) {
+                display: none;
+            }
+        }
+        .main-toolbar {
+            @extend .toolbar;
+            position: fixed;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            left: 0.6rem;
+            top: calc(#{$header-height} + 3.4rem);
+            padding: 0.35rem;
+            gap: 2px;
+            max-height: calc(100vh - #{$header-height} - 4.4rem);
+            overflow: visible;
+
+            .wb-sep {
+                width: 1.6rem;
+                height: 1px;
+                background: var(--c-line);
+                margin: 0.15rem 0;
+            }
+
+            .wb-tool {
+                position: relative;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 2.2rem;
+                height: 2.2rem;
+                padding: 0;
+                border: none;
+                border-radius: var(--radius-btn);
+                background: transparent;
+                color: $black;
+                cursor: pointer;
+                &:hover {
+                    background: var(--c-green-tint);
+                }
+                &.active {
+                    background: $link-color;
+                    color: white;
+                }
+                &.disabled {
+                    opacity: 0.35;
+                }
+                // Tooltip rechts neben dem Symbol
+                &::after {
+                    content: attr(data-tip);
+                    position: absolute;
+                    left: calc(100% + 0.5rem);
+                    top: 50%;
+                    transform: translateY(-50%);
+                    background: $black;
+                    color: white;
+                    font-size: 0.75rem;
+                    white-space: nowrap;
+                    padding: 0.25rem 0.5rem;
+                    border-radius: 4px;
+                    pointer-events: none;
+                    opacity: 0;
+                    transition: opacity 0.1s;
+                    z-index: 10;
+                }
+                &:hover::after {
+                    opacity: 1;
+                }
+            }
+        }
+
+        .wb-style-panel {
+            @extend .toolbar;
+            position: fixed;
+            left: 3.9rem;
+            top: calc(#{$header-height} + 3.4rem);
+            width: 12.5rem;
+            padding: 0.6rem;
+            font-size: 0.8rem;
+            .wb-style-section + .wb-style-section {
+                margin-top: 0.6rem;
+            }
+            .wb-style-label {
+                color: var(--c-muted);
+                margin-bottom: 0.25rem;
+            }
+            .wb-swatches {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+            .wb-swatch {
+                width: 1.25rem;
+                height: 1.25rem;
+                border-radius: 50%;
+                border: 1px solid var(--c-line);
+                padding: 0;
+                cursor: pointer;
+                &.active {
+                    outline: 2px solid var(--c-green);
+                    outline-offset: 2px;
+                }
+                &.transparent {
+                    background: repeating-linear-gradient(45deg, #fff, #fff 3px, #ddd 3px, #ddd 6px);
+                }
+            }
+            .wb-widths {
+                display: flex;
+                gap: 6px;
+            }
+            .wb-width {
+                width: 3rem;
+                height: 1.8rem;
+                border: 1px solid var(--c-line);
+                border-radius: var(--radius-btn);
+                background: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                span {
+                    display: block;
+                    width: 70%;
+                    background: $black;
+                    border-radius: 3px;
+                }
+                &.active {
+                    border-color: var(--c-green-deep);
+                    background: var(--c-green-tint);
+                }
+            }
+        }
+
+        .wb-link-dialog {
+            @extend .toolbar;
+            position: fixed;
+            left: 50%;
+            top: calc(#{$header-height} + 4rem);
+            transform: translateX(-50%);
+            width: 22rem;
+            padding: 0.8rem;
+            z-index: $z-index-modal;
+            label {
+                display: block;
+                font-size: 0.8rem;
+                color: #444;
+            }
+            input {
+                display: block;
+                width: 100%;
+                margin-top: 0.3rem;
+                padding: 0.4rem;
+                font-size: 0.9rem;
+                border: 1px solid #bbb;
+                border-radius: 4px;
+            }
+            .wb-link-error {
+                color: #c0392b;
+                font-size: 0.8rem;
+                margin-top: 0.3rem;
+            }
+            .wb-link-buttons {
+                margin-top: 0.6rem;
+                display: flex;
+                gap: 0.4rem;
+                button {
+                    padding: 0.3rem 0.7rem;
+                    border-radius: 4px;
+                    border: 1px solid #bbb;
+                    background: white;
+                    cursor: pointer;
+                    &[type="submit"] {
+                        background: $link-color;
+                        color: white;
+                        border-color: $link-color;
+                    }
+                }
+            }
+        }
+
+        .tool-instruction {
+            pointer-events: none;
+            position: absolute;
+            top: 6em;
+            left: 1em;
+            right: 1em;
+            padding: 1em;
+            border-radius: 0.5em;
+            text-align: center;
+            color: #555555;
+            background: rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            svg {
+                margin-left: 1em;
+                opacity: 0.3;
+            }
+        }
+
+        .undo-redo-toolbar {
+            @extend .toolbar;
+            position: absolute;
+            font-size: 1.2em;
+            left: 1em;
+            bottom: 1.5em;
+            padding-bottom: 0.2em;
+            @media (max-width: $narrow-screen-breakpoint) {
+                display: none;
+            }
+        }
+
+        .zoom-toolbar {
+            position: absolute;
+            font-size: 1.5em;
+            right: 0;
+            top: 100%;
+            color: var(--c-ink);
+            left: 0;
+            padding: 0.3em;
+
+            .touch & {
+                display: none;
+            }
+        }
+
+        .zoom-controls {
+            display: flex;
+            justify-content: space-evenly;
+            height: 2rem;
+            align-items: center;
+        }
+
+        .minimap {
+            @extend .toolbar;
+            font-size: 1vw;
+            display: inline-block;
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            background: white;
+            border: 0.3em solid var(--c-line);
+            box-sizing: content-box;
+            border-bottom-width: 3rem;
+            min-width: 6rem;
+            @media (max-width: $narrow-screen-breakpoint) {
+                display: none;
+            }
+            .content {
+                position: relative;
+                .viewarea {
+                    display: inline-block;
+                    position: absolute;
+                    border: 1px solid $black;
+                }
+                .item {
+                    display: inline-block;
+                    position: absolute;
+                    background: $link-color;
+                    border: 2px solid $link-color;
+                    &.container {
+                        opacity: 0.5;
+                    }
+                }
+            }
+        }
+
+        .icon {
+            &:not(:first-child) {
+                margin-left: 0.3em;
+            }
+            cursor: pointer;
+            position: relative;
+        }
+
+        .board-status-message {
+            height: 100%;
+            width: 100%;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            pointer-events: none;
+            > div {
+                pointer-events: all;
+                max-width: 80%;
+            }
+        }
+    }
+
+    > .content-container > .tool-layer > .history {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 1rem;
+        h2 {
+            font-size: 1.2rem;
+            margin-bottom: 1em;
+        }
+        > .history-icon-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        z-index: $z-index-menu;
+        min-width: 1rem;
+        &:not(.expanded) {
+            pointer-events: none;
+            .icon {
+                pointer-events: all;
+            }
+        }
+        &.expanded {
+            background: white;
+            border-left: 1px solid #cccccc;
+        }
+        > .selection {
+            margin-bottom: 1em;
+            font-size: 0.8em;
+        }
+        > .icon {
+            cursor: pointer;
+        }
+        .scroll-container {
+            overflow-y: auto;
+            table {
+                tr {
+                    vertical-align: top;
+                    .timestamp {
+                        min-width: 5em;
+                    }
+                    .action {
+                        min-width: 8em;
+                    }
+                }
+            }
+        }
+    }
+    .adding-item {
+        width: 2em;
+    }
+}

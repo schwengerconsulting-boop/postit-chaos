@@ -1,0 +1,16 @@
+.cache/
+node_modules/
+dist/
+yarn-error.log
+.env
+*.mp4
+backend/localfiles/
+/ignore
+.DS_Store
+latest.dump
+.vscode
+backups
+playwright/results
+backend/localfiles-test/
+__pycache__/
+*.pyc
